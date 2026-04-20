@@ -7,7 +7,7 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #f5f5f5; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
-    .container { background: white; border-radius: 12px; padding: 2rem; width: 100%; max-width: 540px; border: 1px solid #e5e5e5; }
+    .container { background: white; border-radius: 12px; padding: 2rem; width: 100%; max-width: 560px; border: 1px solid #e5e5e5; }
     h1 { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
     .sub { font-size: 14px; color: #666; margin-bottom: 1.5rem; }
     .upload-area { border: 1.5px dashed #d0d0d0; border-radius: 8px; padding: 2rem; text-align: center; cursor: pointer; margin-bottom: 1rem; transition: border-color 0.2s; }
@@ -30,8 +30,10 @@
     .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
     .chip { font-size: 11px; padding: 3px 10px; border-radius: 99px; }
     .chip-found { background: #EAF3DE; color: #3B6D11; }
-    .chip-miss  { background: #FCEBEB; color: #A32D2D; }
+    .chip-miss { background: #FCEBEB; color: #A32D2D; }
     .chip-label { font-size: 12px; color: #888; margin-top: 10px; margin-bottom: 4px; }
+    .feedback-box { background: #F8F9FF; border-left: 3px solid #378ADD; border-radius: 0 8px 8px 0; padding: 14px 16px; margin-top: 1rem; font-size: 13px; color: #333; line-height: 1.7; white-space: pre-wrap; }
+    .feedback-title { font-size: 12px; font-weight: 600; color: #378ADD; margin-bottom: 8px; }
     .error-box { background: #FCEBEB; color: #A32D2D; border-radius: 8px; padding: 10px 14px; font-size: 13px; margin-top: 1rem; display: none; }
     .loading { text-align: center; color: #888; font-size: 13px; margin-top: 1rem; display: none; }
   </style>
@@ -39,17 +41,17 @@
 <body>
 <div class="container">
   <h1>Resume Analyzer</h1>
-  <p class="sub">Upload a .txt resume to get your skill match score</p>
+  <p class="sub">Upload a .txt or .pdf resume to get your skill match score + AI feedback</p>
 
   <div class="upload-area" onclick="document.getElementById('fileInput').click()">
-    <input type="file" id="fileInput" accept=".txt" onchange="onFileSelect(event)" />
+    <input type="file" id="fileInput" accept=".txt,.pdf" onchange="onFileSelect(event)" />
     <p class="upload-label">Drop your resume here or <span>browse</span></p>
     <p class="filename" id="fname"></p>
   </div>
 
   <button id="analyzeBtn" onclick="analyzeResume()" disabled>Analyze Resume</button>
 
-  <div class="loading" id="loading">Analyzing...</div>
+  <div class="loading" id="loading">Analyzing with AI — this takes a few seconds...</div>
   <div class="error-box" id="errorBox"></div>
 
   <div class="result" id="result">
@@ -70,6 +72,11 @@
 
     <p class="chip-label">Missing skills</p>
     <div class="chips" id="skillsMissing"></div>
+
+    <div class="feedback-box">
+      <div class="feedback-title">AI FEEDBACK</div>
+      <div id="aiFeedback"></div>
+    </div>
   </div>
 </div>
 
@@ -112,6 +119,7 @@
       document.getElementById('resEmail').textContent   = data.email;
       document.getElementById('resPhone').textContent   = data.phone;
       document.getElementById('resFile').textContent    = data.filename;
+      document.getElementById('aiFeedback').textContent = data.feedback;
 
       document.getElementById('skillsFound').innerHTML =
         data.skills.map(s => `<span class="chip chip-found">${s}</span>`).join('') || '<span style="font-size:13px;color:#888;">None found</span>';
@@ -123,7 +131,7 @@
 
     } catch (err) {
       const eb = document.getElementById('errorBox');
-      eb.textContent = 'Error: ' + err.message + '. Make sure app.py is running on port 5000.';
+      eb.textContent = 'Error: ' + err.message;
       eb.style.display = 'block';
     } finally {
       document.getElementById('loading').style.display = 'none';
