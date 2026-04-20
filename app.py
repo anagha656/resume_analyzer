@@ -1,18 +1,38 @@
 import os
 import re
+import fitz  # PyMuPDF
+from groq import Groq
+from dotenv import load_dotenv
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 
+load_dotenv()
+
 app = Flask(__name__)
-CORS(app)  # allows your HTML frontend to talk to this backend
+CORS(app)
 
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Set up Groq client
+client = Groq(api_key="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")
 
 
 # ─────────────────────────────────────────
 # FUNCTIONS
 # ─────────────────────────────────────────
+
+def extract_text_from_file(filepath):
+    """Read text from either a PDF or a TXT file."""
+    if filepath.endswith(".pdf"):
+        text = ""
+        doc = fitz.open(filepath)
+        for page in doc:
+            text += page.get_text()
+        return text
+    else:
+        with open(filepath, "r", encoding="utf-8") as f:
+            return f.read()
 
 def extract_email(text):
     pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
@@ -33,6 +53,33 @@ def score_resume(found_skills, required_skills):
         return 0
     return round(len(found_skills) / len(required_skills) * 100)
 
+def get_ai_feedback(resume_text, skills_found, skills_missing):
+    """Send resume to Groq and get back feedback."""
+    prompt = f"""
+You are a professional resume reviewer helping a college student improve their resume.
+
+Here is their resume:
+{resume_text}
+
+Skills found: {', '.join(skills_found) if skills_found else 'None'}
+Skills missing: {', '.join(skills_missing) if skills_missing else 'None'}
+
+Give short, friendly, and specific feedback in 3 sections:
+1. Strengths (what looks good)
+2. Missing skills (what to learn or add)
+3. One tip to improve the resume
+
+Keep it under 150 words. Be encouraging — this is a student project.
+"""
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"AI feedback unavailable: {str(e)}"
+
 
 # ─────────────────────────────────────────
 # CLASS
@@ -49,17 +96,18 @@ class ResumeParser:
         self.skills   = []
         self.missing  = []
         self.score    = 0
+        self.feedback = ""
 
     def analyze(self):
-        self.email   = extract_email(self.text)
-        self.phone   = extract_phone(self.text)
-        self.skills  = extract_skills(self.text, self.REQUIRED_SKILLS)
-        self.missing = [s for s in self.REQUIRED_SKILLS if s not in self.skills]
-        self.score   = score_resume(self.skills, self.REQUIRED_SKILLS)
+        self.email    = extract_email(self.text)
+        self.phone    = extract_phone(self.text)
+        self.skills   = extract_skills(self.text, self.REQUIRED_SKILLS)
+        self.missing  = [s for s in self.REQUIRED_SKILLS if s not in self.skills]
+        self.score    = score_resume(self.skills, self.REQUIRED_SKILLS)
+        self.feedback = get_ai_feedback(self.text, self.skills, self.missing)
         return self
 
     def to_dict(self):
-        """Convert results to a dict — Flask turns this into JSON."""
         return {
             "filename": self.filename,
             "email":    self.email,
@@ -67,12 +115,13 @@ class ResumeParser:
             "skills":   self.skills,
             "missing":  self.missing,
             "score":    self.score,
-            "result":   "Strong match" if self.score >= 70 else "Needs improvement"
+            "result":   "Strong match" if self.score >= 70 else "Needs improvement",
+            "feedback": self.feedback
         }
 
 
 # ─────────────────────────────────────────
-# ROUTES  (Flask listens at these URLs)
+# ROUTES
 # ─────────────────────────────────────────
 
 @app.route("/")
@@ -82,39 +131,31 @@ def home():
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
-    """
-    Accepts a POST request with a text file upload.
-    Returns the resume analysis as JSON.
-    """
-    # 1. Check a file was actually sent
     if "resume" not in request.files:
-        return jsonify({"error": "No file uploaded. Send a file with key 'resume'"}), 400
+        return jsonify({"error": "No file uploaded"}), 400
 
     file = request.files["resume"]
 
     if file.filename == "":
         return jsonify({"error": "Empty filename"}), 400
 
-    # 2. Save the uploaded file
+    if not (file.filename.endswith(".pdf") or file.filename.endswith(".txt")):
+        return jsonify({"error": "Only .pdf and .txt files are supported"}), 400
+
     filepath = os.path.join(UPLOAD_FOLDER, file.filename)
     file.save(filepath)
 
-    # 3. Read the text (for now we support .txt — PDF comes in the next step)
     try:
-        with open(filepath, "r") as f:
-            text = f.read()
+        text = extract_text_from_file(filepath)
     except Exception as e:
         return jsonify({"error": f"Could not read file: {str(e)}"}), 500
 
-    # 4. Run your ResumeParser class
     parser = ResumeParser(text, file.filename)
     parser.analyze()
 
-    # 5. Log the activity
     with open("log.txt", "a") as log:
         log.write(f"{file.filename} | score: {parser.score}% | email: {parser.email}\n")
 
-    # 6. Return JSON — Flask's jsonify() converts the dict automatically
     return jsonify(parser.to_dict())
 
 
@@ -123,4 +164,4 @@ def analyze():
 # ─────────────────────────────────────────
 
 if __name__ == "__main__":
-    app.run(debug=True)  # debug=True auto-reloads when you save changes
+    app.run(debug=True)
