@@ -15,7 +15,7 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Set up Groq client
-client = Groq(api_key="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")
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 
 # ─────────────────────────────────────────
